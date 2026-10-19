@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "bombshell.switch",
+  "name": "Bombshell switch",
+  "version": "1.0.0",
+  "author": "bombshell",
+  "description": "Show the bombshell bar and hide the Omarchy bar",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Widget.qml" },
+  "barWidget": {
+    "displayName": "Bombshell",
+    "description": "Switch back to the bombshell bar",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "defaults": {},
+    "schema": []
+  }
+}
