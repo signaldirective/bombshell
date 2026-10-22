@@ -91,11 +91,14 @@ PanelWindow {
                             Text {
                                 anchors.left: parent.left
                                 anchors.leftMargin: 4
+                                anchors.right: sw.left
+                                anchors.rightMargin: 8
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: panel.theme.widgetLabel(widgetRow.modelData)
                                 color: widgetRow.on ? panel.theme.ink : panel.theme.muted
                                 font.family: panel.theme.mono
                                 font.pixelSize: panel.theme.fontSize
+                                elide: Text.ElideRight
                             }
 
                             Rectangle {

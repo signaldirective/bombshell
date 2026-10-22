@@ -33,9 +33,11 @@ PanelWindow {
         }
 
         Row {
+            id: weatherRow
             width: parent.width
             spacing: 14
             Text {
+                id: weatherIcon
                 anchors.verticalCenter: parent.verticalCenter
                 text: panel.theme.weatherReady ? panel.theme.weatherIcon() : Icons.icon("weather")
                 color: panel.theme.barFg
@@ -43,6 +45,7 @@ PanelWindow {
                 font.pixelSize: 34
             }
             Column {
+                width: Math.max(0, weatherRow.width - weatherIcon.width - weatherRow.spacing)
                 anchors.verticalCenter: parent.verticalCenter
                 Text {
                     text: panel.theme.weatherReady
@@ -53,6 +56,8 @@ PanelWindow {
                     font.bold: true
                 }
                 Text {
+                    width: parent.width
+                    elide: Text.ElideRight
                     text: panel.theme.weatherDesc || "Loading…"
                     color: panel.theme.muted
                     font.family: panel.theme.mono

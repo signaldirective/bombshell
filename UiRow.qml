@@ -28,11 +28,15 @@ Item {
     }
 
     Row {
+        id: content
         anchors.left: parent.left
         anchors.leftMargin: 6
+        anchors.right: valueText.left
+        anchors.rightMargin: 8
         anchors.verticalCenter: parent.verticalCenter
         spacing: 8
         Text {
+            id: iconText
             visible: row.icon !== ""
             text: row.icon
             color: row.active ? row.theme.barFg : row.theme.ink
@@ -46,10 +50,15 @@ Item {
             font.family: row.theme.mono
             font.pixelSize: row.theme.fontSize
             anchors.verticalCenter: parent.verticalCenter
+            // Device names can be long. Keep them inside the row.
+            elide: Text.ElideRight
+            width: Math.max(0, content.width
+                - (iconText.visible ? iconText.width + content.spacing : 0))
         }
     }
 
     Text {
+        id: valueText
         anchors.right: parent.right
         anchors.rightMargin: 6
         anchors.verticalCenter: parent.verticalCenter
@@ -57,6 +66,8 @@ Item {
         color: row.theme.muted
         font.family: row.theme.mono
         font.pixelSize: row.theme.fontSize
+        elide: Text.ElideRight
+        width: Math.min(implicitWidth, Math.max(0, row.width * 0.5))
     }
 
     MouseArea {
