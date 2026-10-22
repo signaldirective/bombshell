@@ -11,6 +11,9 @@ Item {
     required property var theme
     property real anchorX: 0
     property int cardWidth: 280
+    // Set when the content scrolls: the card is sized by hand instead of
+    // following the content.
+    property int cardHeight: 0
     property int gap: 8
     default property alias content: body.data
 
@@ -38,7 +41,9 @@ Item {
     Rectangle {
         id: card
         width: surface.cardWidth
-        height: body.implicitHeight + 2 * surface.theme.panelPad
+        height: surface.cardHeight > 0
+            ? surface.cardHeight
+            : body.implicitHeight + 2 * surface.theme.panelPad
         radius: surface.theme.panelRadius
         color: surface.theme.panelBg
         border.width: 1

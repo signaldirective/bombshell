@@ -1,5 +1,12 @@
 // bombshell — a theme-aware Quickshell bar built for Omarchy.
 
+// Ask Omarchy's Quickshell build to pin unversioned `import QtQuick` to
+// 6.11 for every QML file it loads, ours and plugin widgets alike. Qt 6.12
+// ships a `Color` singleton in QtQuick that shadows `qs.Commons.Color`, which
+// left plugin popups (vitals, mocchi, ...) rendering with an undefined
+// surface color. The pragma is what enables that rewrite.
+//@ pragma OmarchyLoadPatch
+
 import QtQuick
 import Quickshell
 
@@ -39,6 +46,7 @@ ShellRoot {
 
     // ── panels (one overlay window each, shown on theme.activePanel) ──
     MenuPanel       { theme: themeRoot }
+    ContentsPanel   { theme: themeRoot }
     CalendarPanel   { theme: themeRoot }
     WeatherPanel    { theme: themeRoot }
     VolumePanel     { theme: themeRoot }
@@ -51,4 +59,8 @@ ShellRoot {
     MemoryPanel     { theme: themeRoot }
     TrayMenuPanel   { theme: themeRoot }
     TooltipOverlay  { theme: themeRoot }
+
+    // The dimmed backdrop for edit mode. It sits above the bar in the layer
+    // order, so it is drawn on its own window rather than inside the bar.
+    EditOverlay     { theme: themeRoot }
 }

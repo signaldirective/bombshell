@@ -37,6 +37,9 @@ Item {
     property color color07: "#cacccc"
     property color accentHint: "#209edb"
     property color green: "#8a9a73"
+    // The colour a widget uses to say "this wants attention". The Omarchy
+    // plugin widgets read it off the bar object.
+    readonly property color urgent: color01
 
     readonly property string home: Quickshell.env("HOME")
     readonly property string shellDir: Quickshell.shellDir
@@ -55,10 +58,23 @@ Item {
     property string menuIcon: "bomb"            // see menuIconOptions
     property string menuIconImage: shellDir + "/assets/menu/starfleet.png"
     property var layout: theme.defaultLayout()
+    // Built-in widgets that are switched off. They keep their place in
+    // `prefs` so switching them back on puts them where they were.
+    property var hidden: []
+    // entry -> island, for entries whose island has to survive being hidden.
+    property var prefs: ({})
     property bool _loaded: false
 
     readonly property string stateDir: home + "/.cache/bombshell"
     readonly property string statePath: stateDir + "/state.json"
+
+    // Entries in the layout are either a built-in widget id or a plugin,
+    // written as "plugin:<plugin id>".
+    readonly property string pluginPrefix: "plugin:"
+
+    // The catalogue of Omarchy plugins that offer a bar widget. It fills in
+    // asynchronously, so it is empty for the first moment of the run.
+    readonly property var omarchyPlugins: pluginRegistry.plugins
 
     readonly property var allWidgets: [
         "menu", "workspaces", "weather", "clock", "cpu", "memory", "volume",
@@ -70,6 +86,13 @@ Item {
         "cpu": "right", "memory": "right", "volume": "right", "battery": "right",
         "power": "right", "network": "right", "bluetooth": "right",
         "display": "right", "tray": "right"
+    })
+    // Readable names for the built-in widgets, used by the contents menu.
+    readonly property var widgetLabels: ({
+        "menu": "Menu", "workspaces": "Workspaces", "weather": "Weather",
+        "clock": "Clock", "cpu": "CPU", "memory": "Memory", "volume": "Volume",
+        "battery": "Battery", "power": "Power", "network": "Network",
+        "bluetooth": "Bluetooth", "display": "Display", "tray": "Tray"
     })
     readonly property var paletteIds: [
         "accent", "color01", "color02", "color03", "color04", "color05",
@@ -85,26 +108,129 @@ Item {
         }
     }
 
+    // A readable name for a built-in widget.
+    function widgetLabel(id) {
+        return theme.widgetLabels[id] || id
+    }
+
+    // ── layout entries ──────────────────────────────────────────────────
+    function isPluginEntry(entry) {
+        return String(entry).indexOf(theme.pluginPrefix) === 0
+    }
+
+    function pluginIdOf(entry) {
+        return isPluginEntry(entry) ? String(entry).substring(theme.pluginPrefix.length) : ""
+    }
+
+    function pluginEntry(pluginId) {
+        return theme.pluginPrefix + pluginId
+    }
+
+    function isKnownEntry(entry) {
+        return theme.allWidgets.indexOf(entry) >= 0 || theme.isPluginEntry(entry)
+    }
+
+    // ── plugin catalogue ─────────────────────────────────────────────────
+    // The plugin's entry point, as a file:// URL.
+    function pluginUrl(pluginId) {
+        return pluginRegistry.urlFor(pluginId)
+    }
+
+    // The settings Omarchy's shell.json keeps for the plugin.
+    function pluginSettings(pluginId) {
+        return pluginRegistry.settingsFor(pluginId)
+    }
+
+    // A readable name for a plugin.
+    function pluginLabel(pluginId) {
+        var plugin = pluginRegistry.pluginFor(pluginId)
+        return plugin ? String(plugin.name || pluginId) : pluginId
+    }
+
+    // The live plugin widgets, per plugin id. A bar surface exists per
+    // monitor, so a plugin usually has one instance per screen. The stock
+    // bar's `moduleWidgets()` looks them up here.
+    property var _pluginItems: ({})
+
+    function registerPluginWidget(pluginId, item) {
+        if (!pluginId || !item) return
+        var map = theme._pluginItems
+        var list = map[pluginId] ? map[pluginId].slice() : []
+        if (list.indexOf(item) < 0) list.push(item)
+        map[pluginId] = list
+        theme._pluginItems = map
+    }
+
+    function unregisterPluginWidget(pluginId, item) {
+        if (!pluginId) return
+        var map = theme._pluginItems
+        var list = map[pluginId] ? map[pluginId].slice() : []
+        var at = list.indexOf(item)
+        if (at >= 0) list.splice(at, 1)
+        if (list.length > 0) map[pluginId] = list
+        else delete map[pluginId]
+        theme._pluginItems = map
+    }
+
+    function pluginWidgets(pluginId) {
+        var map = theme._pluginItems
+        return map[pluginId] ? map[pluginId] : []
+    }
+
     // Keep only known ids, drop duplicates, and re-home anything missing.
-    function normalizedLayout(raw) {
+    // The layout holds the entries that are shown; `hidden` holds the
+    // built-in widgets that are switched off, and `prefs` remembers the
+    // island of anything that has been moved.
+    function normalizedLayout(raw, hiddenList, prefMap) {
         var out = { left: [], center: [], right: [] }
         var seen = ({})
         var sides = ["left", "center", "right"]
+        var off = hiddenList || []
         for (var s = 0; s < sides.length; s++) {
             var arr = (raw && raw[sides[s]]) || []
             for (var i = 0; i < arr.length; i++) {
                 var id = arr[i]
-                if (allWidgets.indexOf(id) >= 0 && !seen[id]) {
-                    out[sides[s]].push(id)
-                    seen[id] = true
-                }
+                if (!theme.isKnownEntry(id) || seen[id]) continue
+                if (off.indexOf(id) >= 0) continue
+                out[sides[s]].push(id)
+                seen[id] = true
             }
         }
-        for (var j = 0; j < allWidgets.length; j++) {
-            var w = allWidgets[j]
-            if (!seen[w]) out[widgetDefaults[w] || "right"].push(w)
+        // A built-in widget that is neither placed nor hidden is on by
+        // default; a plugin is only on when it is in the layout.
+        for (var j = 0; j < theme.allWidgets.length; j++) {
+            var w = theme.allWidgets[j]
+            if (seen[w] || off.indexOf(w) >= 0) continue
+            var side = (prefMap && prefMap[w]) ? prefMap[w] : (theme.widgetDefaults[w] || "right")
+            if (!out[side]) side = "right"
+            out[side].push(w)
+            seen[w] = true
         }
         return out
+    }
+
+    function sideOf(entry) {
+        var sides = ["left", "center", "right"]
+        for (var s = 0; s < sides.length; s++)
+            if (theme.layout[sides[s]].indexOf(entry) >= 0) return sides[s]
+        return ""
+    }
+
+    // The layout without the given entry, and the island it was on.
+    function withoutEntry(entry) {
+        var next = { left: theme.layout.left.slice(),
+                     center: theme.layout.center.slice(),
+                     right: theme.layout.right.slice() }
+        var sides = ["left", "center", "right"]
+        var found = ""
+        for (var s = 0; s < sides.length; s++) {
+            var at = next[sides[s]].indexOf(entry)
+            if (at >= 0) {
+                found = sides[s]
+                next[sides[s]].splice(at, 1)
+            }
+        }
+        return { layout: next, side: found }
     }
 
     function moveWidget(id, side, index) {
@@ -118,12 +244,90 @@ Item {
         if (index < 0 || index > target.length) index = target.length
         target.splice(index, 0, id)
         layout = { left: next.left, center: next.center, right: next.right }
+        var prefs = theme.prefs
+        prefs[id] = side
+        theme.prefs = prefs
+        saveState()
+    }
+
+    // Show or hide a built-in widget.
+    function setItemVisible(entry, visible) {
+        var off = theme.hidden.slice()
+        var at = off.indexOf(entry)
+        if (visible) {
+            if (at >= 0) off.splice(at, 1)
+            if (theme.sideOf(entry) === "") {
+                var side = (theme.prefs[entry] && theme.prefs[entry] !== "off")
+                    ? theme.prefs[entry]
+                    : (theme.widgetDefaults[entry] || "right")
+                theme.placeEntry(entry, side)
+            }
+        } else {
+            if (at < 0) off.push(entry)
+            var where = theme.sideOf(entry)
+            if (where !== "") {
+                var prefs = theme.prefs
+                prefs[entry] = where
+                theme.prefs = prefs
+                theme.layout = theme.withoutEntry(entry).layout
+            }
+        }
+        theme.hidden = off
+        saveState()
+    }
+
+    function widgetVisible(entry) {
+        return theme.sideOf(entry) !== ""
+    }
+
+    // Put an entry at the end of an island.
+    function placeEntry(entry, side) {
+        var next = theme.withoutEntry(entry).layout
+        var target = next[side] || next.right
+        target.push(entry)
+        theme.layout = { left: next.left, center: next.center, right: next.right }
+        var prefs = theme.prefs
+        prefs[entry] = side
+        theme.prefs = prefs
+    }
+
+    // ── plugin widgets ──────────────────────────────────────────────────
+    // Where a plugin widget sits: "off", "left", "center" or "right".
+    function pluginSide(pluginId) {
+        var where = theme.sideOf(theme.pluginEntry(pluginId))
+        return where !== "" ? where : "off"
+    }
+
+    function setPluginSide(pluginId, side) {
+        var entry = theme.pluginEntry(pluginId)
+        if (side === "off") {
+            var where = theme.sideOf(entry)
+            var prefs = theme.prefs
+            if (where !== "") {
+                prefs[entry] = where
+                theme.layout = theme.withoutEntry(entry).layout
+            }
+            theme.prefs = prefs
+        } else {
+            theme.placeEntry(entry, side)
+        }
         saveState()
     }
 
     function resetLayout() {
         layout = defaultLayout()
+        hidden = []
+        prefs = ({})
         saveState()
+    }
+
+    // ───────────────────────── omarchy plugin catalogue ─────────────────────
+    // The stock shell keeps its plugin registry inside its own process, so
+    // bombshell reads the manifests from disk instead. The catalogue fills in
+    // asynchronously; `theme.omarchyPlugins` stays empty until it does.
+    OmarchyPlugins {
+        id: pluginRegistry
+        shellDir: theme.shellDir
     }
 
     // ─────────────────────────────── derived colours ───────────────────────────
@@ -243,6 +447,9 @@ Item {
     // ─────────────────────────────── transient ────────────────────────────────
     property bool barHidden: false
     property bool editMode: false
+    // The screen the edit overlay is drawn on: the one whose menu started
+    // the edit.
+    property var editScreen: null
     property var activePopupScreen: null
     readonly property var primaryScreen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
 
@@ -291,6 +498,7 @@ Item {
 
     function enterEditMode() {
         closePopups()
+        editScreen = activePopupScreen || primaryScreen
         editMode = true
     }
 
@@ -361,7 +569,11 @@ Item {
             if (["numbers", "roman", "kanji", "circles"].indexOf(o.workspaceStyle) >= 0) workspaceStyle = o.workspaceStyle
             if (menuIconOptions.indexOf(o.menuIcon) >= 0) menuIcon = o.menuIcon
             if (typeof o.menuIconImage === "string" && o.menuIconImage !== "") menuIconImage = o.menuIconImage
-            if (o.layout) layout = normalizedLayout(o.layout)
+            var off = (o.hidden && typeof o.hidden === "object") ? o.hidden : []
+            var preferred = (o.prefs && typeof o.prefs === "object") ? o.prefs : ({})
+            hidden = off
+            prefs = preferred
+            layout = normalizedLayout(o.layout, off, preferred)
         }
         _loaded = true
     }
@@ -378,7 +590,9 @@ Item {
             workspaceStyle: workspaceStyle,
             menuIcon: menuIcon,
             menuIconImage: menuIconImage,
-            layout: layout
+            layout: layout,
+            hidden: hidden,
+            prefs: prefs
         }
         stateFile.setText(JSON.stringify(o, null, 2))
     }
@@ -869,6 +1083,18 @@ Item {
         }
         function closePanels(): string {
             theme.closePopups()
+            return "ok"
+        }
+        function edit(): string {
+            theme.enterEditMode()
+            return "ok"
+        }
+        function exitEdit(): string {
+            theme.exitEditMode()
+            return "ok"
+        }
+        function move(widget: string, side: string): string {
+            theme.moveWidget(widget, side, -1)
             return "ok"
         }
         function trayMenu(): string {

@@ -23,38 +23,34 @@ PanelWindow {
         top: !bar.bottom
         bottom: bar.bottom
     }
-    implicitHeight: bar.screen ? bar.screen.height : 1440
+    // The bar is a strip, not a full-height surface. Omarchy's plugin
+    // popouts (qs.Ui/KeyboardPanel) read the bar window's height to work out
+    // where to put the card, so a full-height bar would push every popup to
+    // the bottom of the screen.
+    implicitHeight: bar.theme.barReserve
     exclusionMode: ExclusionMode.Normal
     exclusiveZone: bar.theme.barReserve
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "bombshell-bar"
     // Grab the keyboard while editing so Escape can finish the edit.
     WlrLayershell.keyboardFocus: bar.editing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    // While editing the whole screen is a drop target; otherwise only the strip
-    // takes input so clicks below reach the desktop.
+    // Only the strip takes input, so clicks below reach the desktop.
     mask: Region {
         x: 0
-        y: bar.editing ? 0 : (bar.bottom ? bar.height - bar.theme.barReserve : 0)
-        width: bar.editing ? bar.width : bar.width
-        height: bar.editing ? bar.height : bar.theme.barReserve
+        y: 0
+        width: bar.width
+        height: bar.height
     }
 
     HoverHandler {
         onHoveredChanged: if (hovered && !bar.theme.anyPopupVisible) bar.theme.activatePopupScreen(bar.screen)
     }
 
-    // ── edit-mode backdrop: click outside the strip to finish ──
-    Rectangle {
-        anchors.fill: parent
-        color: "#000000"
-        opacity: bar.editing ? 0.32 : 0
-        visible: opacity > 0.001
-        Behavior on opacity { NumberAnimation { duration: 160 } }
-        MouseArea {
-            anchors.fill: parent
-            enabled: bar.editing
-            onClicked: bar.theme.exitEditMode()
-        }
+    // The `bar` object every Omarchy plugin widget expects. Each monitor has
+    // its own bar surface, so each one gets its own shim.
+    OmarchyBarShim {
+        id: shim
+        theme: bar.theme
     }
 
     // Keyboard handling lives on an inner item because PanelWindow is not a
@@ -201,21 +197,48 @@ PanelWindow {
     }
 
     // ── widget chip + drag and drop ──
+    // A chip holds either one of bombshell's own widgets or an Omarchy
+    // plugin widget. Both are the same thing to the bar: a draggable item
+    // with an id, so the drag and drop code does not care which it is.
     component WidgetChip: Item {
         id: chip
         required property string widgetId
         readonly property string dragId: chip.widgetId
+        readonly property bool isPlugin: bar.theme.isPluginEntry(chip.widgetId)
+        readonly property string pluginId: bar.theme.pluginIdOf(chip.widgetId)
 
-        implicitWidth: loader.implicitWidth
-        implicitHeight: loader.implicitHeight
+        implicitWidth: chip.isPlugin ? pluginLoader.implicitWidth : loader.implicitWidth
+        implicitHeight: chip.isPlugin ? pluginLoader.implicitHeight : loader.implicitHeight
         width: implicitWidth
         height: implicitHeight
 
         Loader {
             id: loader
+            visible: !chip.isPlugin
             anchors.fill: parent
             enabled: !bar.editing
+            active: !chip.isPlugin
             sourceComponent: bar.widgetComponent(chip.widgetId)
+        }
+
+        // An Omarchy plugin widget, loaded from the plugin's own entry
+        // point and handed the bar object it expects. It is only built for
+        // the chips that are actually plugins.
+        Loader {
+            id: pluginLoader
+            visible: chip.isPlugin
+            anchors.fill: parent
+            enabled: !bar.editing
+            active: chip.isPlugin
+            sourceComponent: Component {
+                PluginWidget {
+                    theme: bar.theme
+                    pluginId: chip.pluginId
+                    sourceUrl: bar.theme.pluginUrl(chip.pluginId)
+                    settings: bar.theme.pluginSettings(chip.pluginId)
+                    barShim: shim
+                }
+            }
         }
 
         MouseArea {
@@ -253,6 +276,7 @@ PanelWindow {
         ghostH = item.height
         ghostX = gx - ghostW / 2
         ghostY = gy - ghostH / 2
+        clampGhost()
         dropSide = sideAt(gx)
         dragActive = true
         dragging = true
@@ -262,7 +286,14 @@ PanelWindow {
     function moveDrag(gx, gy) {
         ghostX = gx - ghostW / 2
         ghostY = gy - ghostH / 2
+        clampGhost()
         dropSide = sideAt(gx)
+    }
+
+    // The bar is a strip, so the ghost never leaves it.
+    function clampGhost() {
+        ghostX = Math.max(0, Math.min(bar.width - ghostW, ghostX))
+        ghostY = Math.max(0, Math.min(bar.height - ghostH, ghostY))
     }
 
     function sideAt(x) {

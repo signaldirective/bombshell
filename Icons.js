@@ -12,6 +12,7 @@ var icons = {
     bomb: "\uf1e2",            // nf-fa-bomb — the bombshell mark
     menu: "\ue900",            // Omarchy font menu glyph
     workspaces: "\uf0c9",
+    contents: "\uf0ae",         // nf-fa-tasks — the bar contents list
     close: "\uf00d",
     chevronDown: "\uf078",
     chevronUp: "\uf077",

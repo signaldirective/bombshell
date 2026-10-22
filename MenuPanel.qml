@@ -1,7 +1,7 @@
 // MenuPanel.qml — the settings menu opened by the bar's menu button.
 
 import QtQuick
-import QtQuick.Effects
+import Qt5Compat.GraphicalEffects
 import Quickshell
 import Quickshell.Wayland
 import "Icons.js" as Icons
@@ -49,6 +49,13 @@ PanelWindow {
                 panel.theme.closePopups()
                 panel.theme.enterEditMode()
             }
+        }
+        UiRow {
+            theme: panel.theme
+            icon: Icons.icon("contents")
+            label: "Bar contents"
+            value: Icons.icon("chevronRight")
+            onClicked: panel.theme.openPanel("contents", panel.theme.panelAnchorX)
         }
         UiRow {
             theme: panel.theme
@@ -119,7 +126,7 @@ PanelWindow {
                         color: parent.sel ? panel.theme.barFg : panel.theme.ink
                     }
                     Image {
-                        visible: cell.isImage
+                        id: iconImage
                         anchors.centerIn: parent
                         source: panel.theme.menuIconSourceFor(cell.modelData)
                         sourceSize: Qt.size(64, 64)
@@ -128,11 +135,21 @@ PanelWindow {
                         fillMode: Image.PreserveAspectFit
                         smooth: true
                         mipmap: true
-                        layer.enabled: panel.theme.menuIconIsTinted(cell.modelData)
-                        layer.effect: MultiEffect {
-                            colorization: 1
-                            colorizationColor: cell.sel ? panel.theme.barFg : panel.theme.ink
-                        }
+                        // The bundled icons are white alpha masks. Hide the raw
+                        // image and let ColorOverlay paint the theme colour
+                        // through its alpha, so they read like the glyphs. A
+                        // user-supplied "image" is shown untouched.
+                        readonly property bool tint: cell.isImage
+                            && panel.theme.menuIconIsTinted(cell.modelData)
+                        visible: cell.isImage && !tint
+                        layer.enabled: tint
+                    }
+                    ColorOverlay {
+                        visible: cell.isImage
+                            && panel.theme.menuIconIsTinted(cell.modelData)
+                        anchors.fill: iconImage
+                        source: iconImage
+                        color: cell.sel ? panel.theme.barFg : panel.theme.ink
                     }
                     MouseArea {
                         anchors.fill: parent

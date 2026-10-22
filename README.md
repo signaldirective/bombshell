@@ -38,6 +38,8 @@ light up when active and run the same `omarchy-*` commands as the stock bar.
 - bar position (top / bottom)
 - islands: split the bar into three pills (left, middle, right)
 - **Edit bar**: drag widgets between islands (see below)
+- **Bar contents**: switch bombshell's own widgets off, and pick the island for
+  every Omarchy plugin widget (see below)
 - reset layout
 - bar foreground colour: any colour from the current theme's palette
 - menu icon: bomb, Omarchy glyph, Arch, Hyprland, GitKraken (squid), Star Wars
@@ -65,6 +67,26 @@ islands; an island with no widgets disappears, and only reappears while you are
 editing so you always have somewhere to drop things. Press **Esc** (or click
 outside) to finish — the layout is saved and empty islands hide again.
 
+**Omarchy plugin widgets**
+
+The **Bar contents** submenu has two lists.
+
+The first is bombshell's own widgets. Each one has a switch: turning it off
+takes it off the bar but keeps its place, so switching it back on puts it where
+it was. That is also how you stop a plugin from showing up twice — switch off
+bombshell's clock before you switch on the Omarchy clock plugin.
+
+The second is every Omarchy plugin that ships a bar widget, found by walking
+the plugin manifests the same way the stock shell does. Each one has a four-way
+choice — **off**, **L**, **C**, **R** — that says which island it lands in.
+Plugins are off until you pick one, because bombshell already ships
+equivalents for most of them. A green dot marks the plugins that are live in
+the stock Omarchy bar as well, and the list has a filter field because most
+installations have a lot of them.
+
+Plugin widgets are dragged between islands in edit mode exactly like
+bombshell's own.
+
 **Theme awareness**
 
 bombshell reads the active Omarchy theme's `colors.toml` live and re-colours
@@ -78,6 +100,10 @@ itself when the theme changes. The bar foreground can be any palette colour
   `omarchy-*` helper commands
 - Fonts: `JetBrainsMono Nerd Font`, `omarchy`, and `Noto Sans CJK JP` (for kanji
   workspaces; all are present on Omarchy by default)
+- `qt6-5compat` — provides `Qt5Compat.GraphicalEffects`, used to paint the
+  bundled menu-icon masks in the bar foreground colour
+- Omarchy's Quickshell build (the one carrying `load_qtquick_611.patch`) — see
+  [Why `import QtQuick` is pinned](#why-import-qtquick-is-pinned)
 
 ## Run
 
@@ -101,6 +127,30 @@ To stop it: `quickshell kill -p ~/bombshell --any-display`, or the
 
 The scripts resolve their own location, so the checkout can live anywhere; set
 `BOMBSHELL_DIR` to override.
+
+### The `Ui` and `Commons` symlinks
+
+Omarchy's plugin widgets import `qs.Ui` and `qs.Commons`, and Quickshell
+resolves a qualified import against the directory the shell config lives in.
+`scripts/bombshell-omarchy-modules.sh` symlinks the Omarchy shell's `Ui/` and
+`Commons/` next to bombshell's `shell.qml` so those imports resolve. The
+symlinks are created on every start, are ignored by git, and are only needed
+for the plugin widgets — bombshell itself does not use them.
+
+### Why `import QtQuick` is pinned
+
+`shell.qml` starts with `//@ pragma OmarchyLoadPatch`. That pragma is understood
+by the Quickshell build Omarchy ships, and it does two things: it rewrites
+every unversioned `import QtQuick` to `import QtQuick 6.11`, and it makes
+Quickshell scan plugin directories as they are loaded.
+
+The rewrite matters because Qt 6.12 added a `Color` singleton to `QtQuick`,
+which shadows the `Color` singleton in `qs.Commons`. Plugin widgets that write
+`Color.popups.background` (vitals, mocchi, rain, ...) then read `undefined`
+out of an unrelated type, and their popups render black.
+
+On a Quickshell without that patch the pragma is ignored (with a warning) and
+plugin popups may come up black again.
 
 ## Switching to the Omarchy bar and back
 
@@ -136,6 +186,10 @@ Remove that line to disable it.
 Settings and the widget layout are stored in `~/.cache/bombshell/state.json`.
 Delete it to reset everything to defaults.
 
+Alongside the layout the file keeps `hidden` (bombshell's widgets that are
+switched off) and `prefs` (the island each widget was last on), so a widget
+that is switched off comes back where it was.
+
 ## Layout
 
 ```
@@ -143,18 +197,51 @@ shell.qml              entry point, one Bar per screen, the panels
 Theme.qml              palette, settings, telemetry, panels, IPC
 Bar.qml                the bar surface, islands, registry, drag and drop
 PanelSurface.qml       shared dropdown frame
+ContentsPanel.qml      the bar contents submenu
+EditOverlay.qml        the backdrop shown while the bar is edited
+OmarchyPlugins.qml     the catalogue of Omarchy plugin bar widgets
+PluginWidget.qml       hosts one Omarchy plugin widget
+OmarchyBarShim.qml     the `bar` object a plugin widget expects
 WidgetButton.qml       shared widget shell (hover, tooltip, click, wheel)
 Ui*.qml                panel controls (button, slider, toggle, row, header, …)
 *Widget.qml            the bar widgets
 *Panel.qml             the dropdown panels
 Palette.js, Icons.js   colour parsing and glyphs
 assets/menu/           menu-icon masks (cat, rockstar, mjolnir, vaultboy)
-scripts/               launcher, state toggles, telemetry
+scripts/               launcher, state toggles, telemetry, plugin scan
 omarchy-plugin/        the stock-bar switch widget
 ```
 
+## Scripting
+
+The bar answers IPC on the `bombshell` target:
+
+```
+qs ipc -p ~/bombshell call -- bombshell panel contents   # open a panel
+qs ipc -p ~/bombshell call -- bombshell edit              # start editing
+qs ipc -p ~/bombshell call -- bombshell exitEdit          # finish editing
+qs ipc -p ~/bombshell call -- bombshell move clock right  # move a widget
+```
+
+`move` takes a widget id — a bombshell widget (`clock`, `weather`, …) or a
+plugin (`plugin:omarchy.clock`) — and an island (`left`, `center`, `right`).
+
 ## Notes
 
+- Plugin widgets run **inside bombshell's own process**, not in the stock
+  Omarchy shell. The widget is loaded from the plugin's entry point and handed
+  the three things the stock bar hands every widget: a `bar` object, the plugin
+  id, and the settings the shell keeps for it in `shell.json`.
+- That `bar` object is a stand-in (`OmarchyBarShim.qml`): the colours, the
+  geometry, the tooltip and popout bookkeeping, and `run()` all work, and
+  `bar.shell` is a stub. A widget that needs one of the Omarchy shell's own
+  plugin *services* — `bar.shell.serviceFor("…")` — gets nothing back and may
+  show an error where it expected a value. All 54 plugin bar widgets on a
+  stock install load under the shim; the handful that complain about it
+  (`foamy.vitals`, `omadrives`, `davidjm.rain`) complain in the stock shell
+  too.
+- A plugin widget that opens a panel of its own opens it in bombshell, not in
+  the stock shell.
 - The tray renders each item's icon (Quickshell resolves it to an `image://`
   URL) and skips items that ask to stay passive. Left click activates, middle
   click secondary-activates, wheel scrolls. Right click opens a themed menu
@@ -170,6 +257,6 @@ omarchy-plugin/        the stock-bar switch widget
   `~/.local/state/omarchy/settings/weather.json`, so the stock bar and bombshell
   stay in sync (the CLI is `omarchy-weather-location --set "<city>"`).
 - The bundled menu icons are white alpha masks stored in `assets/menu/`. They
-  are colourised with the bar foreground (`MultiEffect`), so they follow the
+  are colourised with the bar foreground (`ColorOverlay`), so they follow the
   theme just like the font glyphs. The custom **Image** option is drawn as-is,
   which keeps multi-colour artwork intact.

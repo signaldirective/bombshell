@@ -1,0 +1,5 @@
+# The Omarchy shell modules, symlinked in by
+# scripts/bombshell-omarchy-modules.sh so that plugin widgets can import
+# qs.Ui and qs.Commons.
+Ui
+Commons
