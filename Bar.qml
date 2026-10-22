@@ -211,6 +211,11 @@ PanelWindow {
         implicitHeight: chip.isPlugin ? pluginLoader.implicitHeight : loader.implicitHeight
         width: implicitWidth
         height: implicitHeight
+        // A row lines its children up along its top edge, so a widget shorter
+        // than the bar would sit high in it. Centre every chip in the row
+        // instead, so bombshell's own widgets and Omarchy's plugin widgets
+        // share one line through the middle of the bar.
+        anchors.verticalCenter: parent.verticalCenter
 
         Loader {
             id: loader
